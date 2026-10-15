@@ -1,0 +1,17 @@
+# Review
+
+| # | Where (function / line) | What is wrong | How you'd notice it (test, input, or symptom) | How you fixed it |
+|---|---|---|---|---|
+| 1 | `compute_late_minutes()` | The grace-period logic was not matching the contract: it treated a punch at exactly 10 minutes late as late, and the comparison did not preserve the contract's strict `> 10` rule. | Boundary tests at 09:40:00 and 09:40:01; value checks for 10:15:59. | Reworked the calculation to compare the actual IST wall-clock difference against `shift_start` and only count minutes when the difference is strictly greater than 10. |
+| 2 | `attendance_date_for_punch()` and overnight helpers | Overnight shifts were not consistently assigned to the attendance date required by R1. | Test values around 22:00-06:00 overnight shifts. | Used the IST local time and the overnight rule to map punch-ins to the correct attendance day. |
+| 3 | `compute_overtime_minutes()` | Overtime threshold logic did not match the rule that only counts whole minutes after shift end when the total is at least 30. | Boundary checks at 29 and 30 minutes after shift end. | Recalculated overtime from the shift end instant in IST and applied the `>= 30` threshold. |
+| 4 | `department_trend()` | The implementation relied on Python-side calculations and used an invalid collection-level aggregation pattern for daily trend generation. | Contract mismatch for missing calendar days, weekends, headcount, and rolling averages. | Rebuilt the logic around a MongoDB aggregation flow that produces one row per day and computes attendance rate and 7-day moving average per the assessment rules. |
+| 5 | `late_leaderboard()` | Ranking was being assigned in Python instead of MongoDB, which could not match the required competition ranking semantics and cutoff behaviour. | Tied totals at the limit boundary and department-scoped ranking issues. | Replaced the Python-only ranking with aggregation-based rank calculation and applied the `limit` after the rank step. |
+| 6 | `/admin/explain/{endpoint}` | Explain routes must reflect the live analytics pipelines and supported parameters, not simplified or unrelated queries. | Route mismatch, inconsistent pipeline shape, and weak audit of actual query plans. | Kept the explain endpoint aligned with the real aggregation logic and parameter set used by the live endpoints. |
+| 7 | correction/history logic | Manual correction history must preserve prior entries and store BSON datetimes correctly. | Manual regularization tests and stored history validation. | Preserved the append-only `history` sequence and kept stored datetimes consistent with MongoDB expectations. |
+| 8 | punch-out validation | A punch-out earlier than punch-in could be treated as a missing record instead of contract `422` validation. | Invalid timestamp tests and duplicate/concurrent punch-out checks. | Added precise validation before mutation and used conditional updates to prevent duplicate success. |
+
+## Not a defect
+
+- The FastAPI startup hook using `@app.on_event("startup")` is deprecated in newer FastAPI versions, but it remains functionally valid for the current project and does not break the assessment contract. It was not changed because the task was to preserve behavior and fix correctness bugs without unnecessary refactoring.
+- The project keeps route shapes and field names aligned with `openapi.yaml`; refactoring to a newer API style would add risk without changing the contract.
